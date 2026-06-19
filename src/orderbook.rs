@@ -159,17 +159,20 @@ impl OrderBook {
             };
             let Some(bp) = best_price else { break };
 
-            // 2. 价格匹配判定（市价单跳过）
+            //2. 如果是市价单，则直接进入撮合
+            // 如果是限价单，则需要判断最优对手价是否在价格区间
+            // 如果是限价单，并且当前最优对手价不在限价范围内，就直接退出撮合
             if !is_market && !Self::price_crosses(side, limit_price, bp) { break; }
 
             // 3. 市价保护：超出保护价停止，已成交照常返回
+            // 如果市价单没有设置保护价，如果卖盘很少，可能会造成吃到很高价格的卖单，造成巨大的滑点
             if let Some(pp) = protection {
                 let exceeded = match side { Side::Buy => bp > pp, Side::Sell => bp < pp };
                 if exceeded { break; }
             }
 
             // 4. 档位内 FIFO 逐笔成交，成交价 = Maker(被动方) 价格
-            let level = opposite.get_mut(&bp).unwrap();
+            let level = opposite.get_mut(&bp).expect("best_price 来自 keys(),档位必然存在——不变量被破坏");
             while remaining > 0 {
                 let Some(front) = level.orders.front_mut() else { break };
                 let traded = remaining.min(front.remaining);
