@@ -1,0 +1,13 @@
+symbols = ["BTC/USD", "ETH/USD", "SOL/USDT"]
+
+[mq]
+url = "redis://127.0.0.1/"
+inbound_stream = "orders"
+trades_topic = "trades"
+book_events_topic = "book_events"
+
+[engine]
+input_ring_capacity = 65536
+output_ring_capacity = 65536
+market_protection_bps = 500
+

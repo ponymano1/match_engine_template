@@ -11,8 +11,8 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(symbol: impl Into<String>) -> Self {
-        Self { book: OrderBook::new(symbol), market_protection_bps: 500 }
+    pub fn new(symbol: impl Into<String>, market_protection_bps: u64) -> Self {
+        Self { book: OrderBook::new(symbol), market_protection_bps }
     }
 
     /// 处理一条已定序命令，返回零个或多个事件（Accepted + 后续状态变更）
