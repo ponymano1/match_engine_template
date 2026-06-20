@@ -48,9 +48,9 @@ impl OrderBook {
         }
     }
 
-    /// 最优买价（最高 bid）
+    /// 最优买价（最高 bid）, 取最后一个元素
     pub fn best_bid(&self) -> Option<Price> { self.bids.keys().next_back().copied() }
-    /// 最优卖价（最低 ask）
+    /// 最优卖价（最低 ask）,  取第一个元素
     pub fn best_ask(&self) -> Option<Price> { self.asks.keys().next().copied() }
 
     /// 限价是否可与某对手价成交
