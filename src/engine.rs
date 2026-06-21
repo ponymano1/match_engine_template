@@ -19,7 +19,7 @@ impl Engine {
     pub fn handle(&mut self, s: &Sequenced) -> Vec<Event> {
         match &s.cmd {
             Command::NewOrder(o) => self.on_new_order(o, s.seq, s.ts),
-            Command::Cancel { order_id } => {
+            Command::Cancel { order_id, .. } => {
                 if self.book.cancel(*order_id) {
                     vec![Event::Canceled { order_id: *order_id }]
                 } else {
@@ -115,8 +115,9 @@ mod tests {
     use super::*;
 
     fn seq(cmd: Command, n: u64) -> Sequenced {
-        Sequenced { seq: n, ts: n, cmd }
+        Sequenced { seq: n, shard_seq: n, ts: n, cmd }
     }
+    
 
     fn order_u(id: OrderId, user: u64, side: Side, ot: OrderType, price: Price, qty: Quantity) -> Command {
         Command::NewOrder(NewOrder {
@@ -221,14 +222,14 @@ mod tests {
     fn cancel_existing_order() {
         let mut e = Engine::new("X", 500);
         e.handle(&seq(order(1, Side::Buy, OrderType::Limit, 100, 5), 1));
-        let ev = e.handle(&seq(Command::Cancel { order_id: 1 }, 2));
+        let ev = e.handle(&seq(Command::Cancel { order_id: 1, symbol: "X".into() }, 2));
         assert!(matches!(ev[0], Event::Canceled { order_id: 1 }));
     }
 
     #[test]
     fn cancel_missing_order_rejected() {
         let mut e = Engine::new("X", 500);
-        let ev = e.handle(&seq(Command::Cancel { order_id: 99 }, 1));
+        let ev = e.handle(&seq(Command::Cancel { order_id: 99, symbol: "X".into() }, 1));
         assert!(matches!(ev[0], Event::Rejected { .. }));
     }
 

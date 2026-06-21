@@ -28,7 +28,7 @@ pub enum OrderType { Limit, Market, Ioc, Fok, PostOnly }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     NewOrder(NewOrder),
-    Cancel { order_id: OrderId },
+    Cancel { order_id: OrderId, symbol: String }, // 加 symbol：撤单也要能路由到分片
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +45,8 @@ pub struct NewOrder {
 /// 经过定序点后的命令：seq + ts 是确定性的关键，必须随输入流固化下来
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sequenced {
-    pub seq: Sequence,
+    pub seq: Sequence,        // 全局总序，跨 symbol 单调（用于跨分片审计/总序重放）
+    pub shard_seq: Sequence,  // 分片内连续序号，从 1 递增无跳号（用于本分片丢包检测/恢复）
     pub ts: Timestamp,
     pub cmd: Command,
 }

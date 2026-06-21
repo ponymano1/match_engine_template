@@ -93,34 +93,43 @@ fn main() -> anyhow::Result<()> {
     use mq::Inbound;
     let mut in_mq = mq::redis_mq::RedisInbound::new(&cfg.mq.url, &cfg.mq.inbound_stream)?;
     let seq = AtomicU64::new(1);
+    let mut shard_seqs: HashMap<String, u64> = HashMap::new(); // symbol → 下一个分片内序号
 
     loop {
         for raw in in_mq.poll()? {
             let cmd: Command = match serde_json::from_slice(&raw) {
                 Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!("bad cmd: {e}");
-                    continue;
-                }
+                Err(e) => { tracing::warn!("bad cmd: {e}"); continue; }
             };
-            // 定序点:固化 seq + ts,保证 Primary/Standby 重放完全一致
-            let sequenced = Sequenced {
-                seq: seq.fetch_add(1, Ordering::Relaxed),
-                ts: now_nanos(),
-                cmd: cmd.clone(),
-            };
+    
             let symbol = match &cmd {
                 Command::NewOrder(o) => o.symbol.clone(),
-                // 撤单需带 symbol 才能路由(见下方说明),暂仍跳过
-                Command::Cancel { .. } => continue,
+                Command::Cancel { symbol, .. } => symbol.clone(),
             };
-            if let Some(tx) = routes.get(&symbol) {
-                let _ = tx.send(sequenced); // 推入对应分片的 Input Ring Buffer
-            } else {
+    
+            // 未知 symbol 先判，避免给它白白消耗一个 shard_seq（保持有效分片序号连续）
+            let Some(tx) = routes.get(&symbol) else {
                 tracing::warn!(%symbol, "unknown symbol, drop command");
-            }
+                continue;
+            };
+    
+            // 定序点：全局 seq + 分片内 shard_seq + ts 一起固化
+            let shard_seq = {
+                let n = shard_seqs.entry(symbol).or_insert(1);
+                let cur = *n;
+                *n += 1;
+                cur
+            };
+            let sequenced = Sequenced {
+                seq: seq.fetch_add(1, Ordering::Relaxed),
+                shard_seq,
+                ts: now_nanos(),
+                cmd,
+            };
+            let _ = tx.send(sequenced);
         }
     }
+    
 }
 
 fn now_nanos() -> u64 {
