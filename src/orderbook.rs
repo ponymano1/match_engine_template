@@ -57,9 +57,13 @@ impl OrderBook {
     }
 
     /// 最优买价（最高 bid）, 取最后一个元素
-    pub fn best_bid(&self) -> Option<Price> { self.bids.keys().next_back().copied() }
+    pub fn best_bid(&self) -> Option<Price> {
+        self.bids.keys().next_back().copied()
+    }
     /// 最优卖价（最低 ask）,  取第一个元素
-    pub fn best_ask(&self) -> Option<Price> { self.asks.keys().next().copied() }
+    pub fn best_ask(&self) -> Option<Price> {
+        self.asks.keys().next().copied()
+    }
 
     /// 限价是否可与某对手价成交
     #[inline]
@@ -142,20 +146,33 @@ impl OrderBook {
     }
 
     /// 把剩余挂入自己一侧（提供流动性）
-    pub fn rest(&mut self, order_id: OrderId, user_id: u64, side: Side, price: Price, remaining: Quantity) {
+    pub fn rest(
+        &mut self,
+        order_id: OrderId,
+        user_id: u64,
+        side: Side,
+        price: Price,
+        remaining: Quantity,
+    ) {
         let book = match side {
             Side::Buy => &mut self.bids,
             Side::Sell => &mut self.asks,
         };
         let level = book.entry(price).or_default();
         level.total += remaining;
-        level.orders.push_back(RestingOrder { order_id, user_id, remaining });
+        level.orders.push_back(RestingOrder {
+            order_id,
+            user_id,
+            remaining,
+        });
         self.index.insert(order_id, (side, price));
     }
 
     /// 撤单：从索引定位后从对应档位移除，空档则删除价位键
     pub fn cancel(&mut self, order_id: OrderId) -> bool {
-        let Some((side, price)) = self.index.remove(&order_id) else { return false };
+        let Some((side, price)) = self.index.remove(&order_id) else {
+            return false;
+        };
         let book = match side {
             Side::Buy => &mut self.bids,
             Side::Sell => &mut self.asks,
@@ -164,14 +181,16 @@ impl OrderBook {
             if let Some(pos) = level.orders.iter().position(|o| o.order_id == order_id) {
                 let removed = level.orders.remove(pos).unwrap();
                 level.total -= removed.remaining;
-                if level.orders.is_empty() { book.remove(&price); }
+                if level.orders.is_empty() {
+                    book.remove(&price);
+                }
                 return true;
             }
         }
         false
     }
 
-/// 撮合循环：按价格优先、同价时间优先消耗对手盘。
+    /// 撮合循环：按价格优先、同价时间优先消耗对手盘。
     ///
     /// - `taker_user_id`：自成交保护用。撞到同一 user 的挂单时，**撤销该 Maker**
     ///   （Cancel Resting 策略），Taker 不与自己成交、继续吃后续挂单。
@@ -204,18 +223,29 @@ impl OrderBook {
             let Some(bp) = best_price else { break };
 
             // 2. 限价单：最优对手价不在限价范围内则停止
-            if !is_market && !Self::price_crosses(side, limit_price, bp) { break; }
+            if !is_market && !Self::price_crosses(side, limit_price, bp) {
+                break;
+            }
 
             // 3. 市价保护：超出保护价停止
             if let Some(pp) = protection {
-                let exceeded = match side { Side::Buy => bp > pp, Side::Sell => bp < pp };
-                if exceeded { break; }
+                let exceeded = match side {
+                    Side::Buy => bp > pp,
+                    Side::Sell => bp < pp,
+                };
+                if exceeded {
+                    break;
+                }
             }
 
             // 4. 档位内 FIFO 逐笔成交，成交价 = Maker 价
-            let level = opposite.get_mut(&bp).expect("best_price 来自 keys(),档位必然存在——不变量被破坏");
+            let level = opposite
+                .get_mut(&bp)
+                .expect("best_price 来自 keys(),档位必然存在——不变量被破坏");
             while remaining > 0 {
-                let Some(front) = level.orders.front() else { break };
+                let Some(front) = level.orders.front() else {
+                    break;
+                };
 
                 // —— 自成交保护：撞到自己的挂单，整笔撤销，不与自己成交 ——
                 if front.user_id == taker_user_id {
@@ -231,11 +261,19 @@ impl OrderBook {
                 level.total -= traded;
                 remaining -= traded;
 
-                fills.push(Fill { maker_order_id: front.order_id, price: bp, quantity: traded });
+                fills.push(Fill {
+                    maker_order_id: front.order_id,
+                    price: bp,
+                    quantity: traded,
+                });
 
-                if front.remaining == 0 { level.orders.pop_front(); }
+                if front.remaining == 0 {
+                    level.orders.pop_front();
+                }
             }
-            if level.orders.is_empty() { opposite.remove(&bp); }
+            if level.orders.is_empty() {
+                opposite.remove(&bp);
+            }
         }
 
         // opposite 的可变借用到此结束，可安全清理被 STP 撤销的挂单索引
@@ -243,9 +281,12 @@ impl OrderBook {
             self.index.remove(id);
         }
 
-        MatchOutcome { remaining, fills, stp_canceled }
+        MatchOutcome {
+            remaining,
+            fills,
+            stp_canceled,
+        }
     }
-
 }
 
 #[cfg(test)]
@@ -449,13 +490,13 @@ mod tests {
     #[test]
     fn self_trade_cancels_resting_maker_no_fill() {
         let mut b = OrderBook::new("X");
-        b.rest(1, 7, Side::Sell, 100, 5);                     // user 7 挂卖
+        b.rest(1, 7, Side::Sell, 100, 5); // user 7 挂卖
         let out = b.match_order(Side::Buy, 100, 5, false, None, 7); // user 7 来吃
-        assert!(out.fills.is_empty());            // 不与自己成交
-        assert_eq!(out.stp_canceled, vec![1]);    // 自己的挂单被撤
-        assert_eq!(out.remaining, 5);             // taker 一点没成交
-        assert_eq!(b.best_ask(), None);           // 挂单已移除
-        assert!(!b.cancel(1));                    // 索引也已清理
+        assert!(out.fills.is_empty()); // 不与自己成交
+        assert_eq!(out.stp_canceled, vec![1]); // 自己的挂单被撤
+        assert_eq!(out.remaining, 5); // taker 一点没成交
+        assert_eq!(b.best_ask(), None); // 挂单已移除
+        assert!(!b.cancel(1)); // 索引也已清理
     }
 
     #[test]
@@ -502,5 +543,119 @@ mod tests {
         b.match_order(Side::Buy, 100, 5, false, None, TAKER);
         assert!(!b.cancel(1));
     }
-}
 
+    // ===== STP：队列中部 / 跨档 / 部分撤后继续吃 =====
+
+    #[test]
+    fn stp_cancels_own_in_middle_of_queue() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 9, Side::Sell, 100, 4); // 别人
+        b.rest(2, 7, Side::Sell, 100, 4); // 自己，夹在中间
+        b.rest(3, 9, Side::Sell, 100, 4); // 别人
+        let out = b.match_order(Side::Buy, 100, 12, false, None, 7);
+        assert_eq!(out.stp_canceled, vec![2]); // 中间那笔被撤
+        assert_eq!(out.fills.len(), 2);
+        assert_eq!(out.fills[0].maker_order_id, 1);
+        assert_eq!(out.fills[1].maker_order_id, 3);
+        assert_eq!(out.remaining, 4); // 12 - (4+4)
+        assert_eq!(b.best_ask(), None);
+    }
+
+    #[test]
+    fn stp_across_multiple_levels() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 7, Side::Sell, 100, 5); // 自己在最优档
+        b.rest(2, 9, Side::Sell, 101, 5); // 别人在次档
+        let out = b.match_order(Side::Buy, 101, 5, false, None, 7);
+        assert_eq!(out.stp_canceled, vec![1]); // 最优档自己的被撤、档清空
+        assert_eq!(out.fills.len(), 1);
+        assert_eq!(out.fills[0].maker_order_id, 2);
+        assert_eq!(out.fills[0].price, 101); // 跨到下一档成交
+        assert_eq!(out.remaining, 0);
+        assert_eq!(b.best_ask(), None);
+        assert!(!b.cancel(1)); // 被撤单索引已清
+    }
+
+    #[test]
+    fn match_partial_stp_then_continue_fill() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 7, Side::Sell, 100, 3); // 自己，整笔撤
+        b.rest(2, 9, Side::Sell, 100, 10); // 别人，部分成交
+        let out = b.match_order(Side::Buy, 100, 6, false, None, 7);
+        assert_eq!(out.stp_canceled, vec![1]);
+        assert_eq!(out.fills.len(), 1);
+        assert_eq!(out.fills[0].maker_order_id, 2);
+        assert_eq!(out.fills[0].quantity, 6);
+        assert_eq!(out.remaining, 0);
+        assert!(level_total_matches(&b, Side::Sell, 100)); // order2 剩 4，total 一致
+        assert_eq!(b.best_ask(), Some(100));
+    }
+
+    // ===== can_fill_fully：两段式关键分支 =====
+
+    #[test]
+    fn can_fill_fully_upper_passes_but_self_exclusion_fails() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 7, Side::Sell, 100, 10); // 自己
+        b.rest(2, 9, Side::Sell, 100, 2); // 别人
+        // total=12 过第一遍上界(>=5)，但排除自身后真实只有 2 < 5
+        assert!(!b.can_fill_fully(Side::Buy, 100, 5, 7));
+        assert!(b.can_fill_fully(Side::Buy, 100, 5, 99)); // 别人则够
+        assert!(b.can_fill_fully(Side::Buy, 100, 2, 7)); // 自己只要 2 也够
+    }
+
+    #[test]
+    fn can_fill_fully_self_interleaved_early_return() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 7, Side::Sell, 100, 100); // 自己的大单，应被跳过
+        b.rest(2, 9, Side::Sell, 100, 5);
+        b.rest(3, 9, Side::Sell, 101, 5);
+        assert!(b.can_fill_fully(Side::Buy, 101, 8, 7)); // 排除自身后 10 >= 8
+        assert!(!b.can_fill_fully(Side::Buy, 101, 11, 7)); // 10 < 11
+    }
+
+    #[test]
+    fn can_fill_fully_sell_side() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 1, Side::Buy, 100, 5);
+        b.rest(2, 1, Side::Buy, 99, 5);
+        assert!(b.can_fill_fully(Side::Sell, 99, 10, TAKER));
+        assert!(!b.can_fill_fully(Side::Sell, 99, 11, TAKER));
+        assert!(!b.can_fill_fully(Side::Sell, 100, 10, TAKER)); // 只有 bid>=100 = 5
+    }
+
+    // ===== 卖方向撮合 / 保护边界 / 撤错单 =====
+
+    #[test]
+    fn sell_side_match_consumes_bids_high_first() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 1, Side::Buy, 100, 5);
+        b.rest(2, 1, Side::Buy, 101, 5);
+        let out = b.match_order(Side::Sell, 100, 8, false, None, TAKER);
+        assert_eq!(out.fills[0].price, 101); // 最高买价优先
+        assert_eq!(out.fills[0].quantity, 5);
+        assert_eq!(out.fills[1].price, 100);
+        assert_eq!(out.fills[1].quantity, 3);
+        assert_eq!(out.remaining, 0);
+    }
+
+    #[test]
+    fn protection_boundary_is_inclusive() {
+        // exceeded 用严格 >，bp == pp 应当成交
+        let mut b = OrderBook::new("X");
+        b.rest(1, 1, Side::Sell, 105, 5);
+        let out = b.match_order(Side::Buy, 0, 5, true, Some(105), TAKER);
+        assert_eq!(out.fills.len(), 1);
+        assert_eq!(out.fills[0].price, 105);
+        assert_eq!(out.remaining, 0);
+    }
+
+    #[test]
+    fn cancel_unknown_id_on_populated_book() {
+        let mut b = OrderBook::new("X");
+        b.rest(1, 1, Side::Buy, 100, 5);
+        assert!(!b.cancel(999)); // 不存在
+        assert_eq!(b.best_bid(), Some(100)); // 原挂单不受影响
+        assert!(level_total_matches(&b, Side::Buy, 100));
+    }
+}

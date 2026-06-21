@@ -12,7 +12,10 @@ pub type Sequence = u64;
 
 /// 买卖方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Side { Buy, Sell }
+pub enum Side {
+    Buy,
+    Sell,
+}
 
 /// 订单类型与成交约束
 ///
@@ -22,7 +25,13 @@ pub enum Side { Buy, Sell }
 /// - `Fok`：全部成交或全部取消，不能一次性全量成交则整笔拒绝
 /// - `PostOnly`：只做 Maker，若会立即吃单则整笔拒绝
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OrderType { Limit, Market, Ioc, Fok, PostOnly }
+pub enum OrderType {
+    Limit,
+    Market,
+    Ioc,
+    Fok,
+    PostOnly,
+}
 
 /// 撮合引擎的合法输入：已通过冻结 + Pre-trade 风控
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +46,7 @@ pub struct NewOrder {
     pub symbol: String,
     pub side: Side,
     pub order_type: OrderType,
-    pub price: Price,          // Market 单忽略此字段
+    pub price: Price, // Market 单忽略此字段
     pub quantity: Quantity,
     pub user_id: u64,
 }
@@ -45,8 +54,8 @@ pub struct NewOrder {
 /// 经过定序点后的命令：seq + ts 是确定性的关键，必须随输入流固化下来
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sequenced {
-    pub seq: Sequence,        // 全局总序，跨 symbol 单调（用于跨分片审计/总序重放）
-    pub shard_seq: Sequence,  // 分片内连续序号，从 1 递增无跳号（用于本分片丢包检测/恢复）
+    pub seq: Sequence,       // 全局总序，跨 symbol 单调（用于跨分片审计/总序重放）
+    pub shard_seq: Sequence, // 分片内连续序号，从 1 递增无跳号（用于本分片丢包检测/恢复）
     pub ts: Timestamp,
     pub cmd: Command,
 }
@@ -54,8 +63,14 @@ pub struct Sequenced {
 /// 撮合输出事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    Accepted { order_id: OrderId, seq: Sequence },
-    Rejected { order_id: OrderId, reason: String },
+    Accepted {
+        order_id: OrderId,
+        seq: Sequence,
+    },
+    Rejected {
+        order_id: OrderId,
+        reason: String,
+    },
     /// 一笔成交：成交价永远是 Maker（被动方）价格
     Trade {
         seq: Sequence,
@@ -68,9 +83,19 @@ pub enum Event {
         quantity: Quantity,
     },
     /// 订单挂入簿（提供流动性）
-    Resting { order_id: OrderId, side: Side, price: Price, remaining: Quantity },
-    Canceled { order_id: OrderId },
+    Resting {
+        order_id: OrderId,
+        side: Side,
+        price: Price,
+        remaining: Quantity,
+    },
+    Canceled {
+        order_id: OrderId,
+    },
     /// 未成交部分被取消（Market/IOC/FOK）
-    Killed { order_id: OrderId, unfilled: Quantity, reason: String },
+    Killed {
+        order_id: OrderId,
+        unfilled: Quantity,
+        reason: String,
+    },
 }
-

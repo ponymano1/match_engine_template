@@ -40,8 +40,8 @@ fn default_protection_bps() -> u64 {
 
 impl Config {
     pub fn load(path: &str) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("无法读取配置文件: {path}"))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("无法读取配置文件: {path}"))?;
         let mut cfg: Config =
             toml::from_str(&raw).with_context(|| format!("配置文件解析失败: {path}"))?;
 

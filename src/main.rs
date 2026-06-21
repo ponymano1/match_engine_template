@@ -1,13 +1,13 @@
 mod config;
 mod domain;
-mod orderbook;
 mod engine;
 mod mq;
+mod orderbook;
 
 use config::Config;
+use crossbeam_channel::{Receiver, Sender, bounded};
 use domain::*;
 use engine::Engine;
-use crossbeam_channel::{bounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -40,7 +40,9 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // —— 配置:第一个命令行参数为路径,默认 config.toml ——
-    let path = std::env::args().nth(1).unwrap_or_else(|| "config.toml".to_string());
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "config.toml".to_string());
     let cfg = Config::load(&path)?;
     tracing::info!(
         config = %path,
@@ -99,20 +101,23 @@ fn main() -> anyhow::Result<()> {
         for raw in in_mq.poll()? {
             let cmd: Command = match serde_json::from_slice(&raw) {
                 Ok(c) => c,
-                Err(e) => { tracing::warn!("bad cmd: {e}"); continue; }
+                Err(e) => {
+                    tracing::warn!("bad cmd: {e}");
+                    continue;
+                }
             };
-    
+
             let symbol = match &cmd {
                 Command::NewOrder(o) => o.symbol.clone(),
                 Command::Cancel { symbol, .. } => symbol.clone(),
             };
-    
+
             // 未知 symbol 先判，避免给它白白消耗一个 shard_seq（保持有效分片序号连续）
             let Some(tx) = routes.get(&symbol) else {
                 tracing::warn!(%symbol, "unknown symbol, drop command");
                 continue;
             };
-    
+
             // 定序点：全局 seq + 分片内 shard_seq + ts 一起固化
             let shard_seq = {
                 let n = shard_seqs.entry(symbol).or_insert(1);
@@ -129,9 +134,11 @@ fn main() -> anyhow::Result<()> {
             let _ = tx.send(sequenced);
         }
     }
-    
 }
 
 fn now_nanos() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
