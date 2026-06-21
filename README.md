@@ -43,3 +43,14 @@ MQ Topic
     |----> Match Engine Server B (Standby) --> No trade output
     |----> Match Engine Server C (Standby) --> No trade output
 ```
+
+## 注意事项
+- 订单在放入mq之前要进行风控
+- 风控要确保没有自成交订单和数量为0的订单 
+
+### qty = 0,防御性保障
+- 先Accepted,保证每笔NewOrder都被确认,再Reject.
+- 这个是防御性保障，前期风控应该拦掉这笔单
+
+### 自成交策略: 撤挂单(Cancel Resting/ Cancel Oldest)
+- Taker 扫到自己的挂单时，把那笔Maker整比撤销，并发出Canceled事件，继续吃后面的单子
