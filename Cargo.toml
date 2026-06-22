@@ -18,3 +18,10 @@ tracing-subscriber = "0.3.23"
 default = ["redis-mq"]
 redis-mq = ["dep:redis"]
 kafka-mq = ["dep:rdkafka"]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "engine_bench"
+harness = false

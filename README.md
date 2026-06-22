@@ -295,6 +295,10 @@ the process refuses to run misconfigured.
 cargo run --features redis-mq -- config.toml
 cargo test --features redis-mq         # unit tests for engine + orderbook
 ```
+## Engine performance testing
+```bash
+cargo bench --bench engine_bench
+```
 
 ## Roadmap
 

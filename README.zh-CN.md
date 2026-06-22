@@ -280,6 +280,11 @@ cargo run --features redis-mq -- config.toml
 cargo test --features redis-mq         # engine + orderbook 单元测试
 ```
 
+## engin压测
+```bash
+cargo bench --bench engine_bench
+```
+
 ## 路线图
 
 * [ ] Kafka 入站/出站
