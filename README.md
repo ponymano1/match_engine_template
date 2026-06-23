@@ -42,6 +42,8 @@ from a working core instead of from scratch. The engine is deliberately
 - **Output**: MQ
 - The engine never knows where an order came from. User orders, Risk Service
   re-injections — all look identical to the engine.
+- **Note**: Redis is for testing only. In production, prefer another MQ, or
+  operate Redis with full high-availability management.
 
 ## Upstream / Downstream
 
@@ -299,6 +301,15 @@ cargo test --features redis-mq         # unit tests for engine + orderbook
 ```bash
 cargo bench --bench engine_bench
 ```
+
+### Benchmark optimization path
+- Cut outbound traffic in half. Today events are sent one-by-one via
+  `out_tx.send` — two sends per order. Have the matching thread send the full
+  `Vec<Event>` returned by `handle` as a single message (change the channel
+  type from `Event` to `Vec<Event>` or `SmallVec<Event>`), so outbound channel
+  ops drop from 2 per order to 1. That alone reduces matching-thread channel
+  ops from 3 to 2, saving ~100 ns per order; retention rate should climb from
+  ~28% back to ~40%. Highest-ROI change, no new dependencies. (Done)
 
 ## Roadmap
 

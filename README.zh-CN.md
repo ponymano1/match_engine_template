@@ -35,6 +35,7 @@
 - **输入**:MQ(当前 Redis;计划支持 Kafka / SQS)
 - **输出**:MQ
 - 撮合引擎不关心订单来源。用户下单、Risk Service 回灌——在引擎眼里完全一样。
+- 注意: redis 只作为测试用，生产环境最好选择其他MQ, 或者对redis做充分的高可用管理
 
 ## 上下游
 
@@ -280,10 +281,14 @@ cargo run --features redis-mq -- config.toml
 cargo test --features redis-mq         # engine + orderbook 单元测试
 ```
 
-## engin压测
+## engine压测
 ```bash
 cargo bench --bench engine_bench
 ```
+
+### 压测优化路径
+- 削掉一半的 out 流量。 现在你是逐个事件 out_tx.send,一单发 2 次。改成撮合线程把 handle 返回的整个 Vec<Event> 当一条消息发出去(channel 类型从 Event 改成 Vec<Event> 或 SmallVec<Event>),out 侧的 channel 操作就从 2 次/单降到 1 次/单。光这一步,撮合线程的 channel 操作从 3 次降到 2 次,能省掉约 100ns/单,留存率大概率能从 28% 拉回到 40% 上下。这是性价比最高的一刀,且不引入任何新依赖。(已完成)
+
 
 ## 路线图
 
