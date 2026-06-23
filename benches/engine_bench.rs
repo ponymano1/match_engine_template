@@ -7,18 +7,16 @@
 use std::thread;
 use std::time::Duration;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput,
-};
+use criterion::{BatchSize, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use crossbeam_channel::bounded;
 
 // —— 把二进制 crate 里的源文件直接挂到 bench crate 根 ——
 #[path = "../src/domain.rs"]
 mod domain;
-#[path = "../src/orderbook.rs"]
-mod orderbook;
 #[path = "../src/engine.rs"]
 mod engine;
+#[path = "../src/orderbook.rs"]
+mod orderbook;
 
 use domain::*;
 use engine::Engine;
@@ -113,7 +111,17 @@ fn bench_10k_takers_one_maker(c: &mut Criterion) {
     const N: u64 = 10_000;
     let maker = no(1, 1, Side::Sell, OrderType::Limit, 100, N, 1);
     let takers: Vec<Sequenced> = (0..N)
-        .map(|i| no(1_000_000 + i, 2, Side::Buy, OrderType::Limit, 100, 1, 100 + i))
+        .map(|i| {
+            no(
+                1_000_000 + i,
+                2,
+                Side::Buy,
+                OrderType::Limit,
+                100,
+                1,
+                100 + i,
+            )
+        })
         .collect();
 
     let mut g = c.benchmark_group("throughput_10k_takers");
@@ -144,7 +152,15 @@ fn bench_sweep_10k_levels(c: &mut Criterion) {
     let makers: Vec<Sequenced> = (0..N)
         .map(|i| no(i + 1, 1, Side::Sell, OrderType::Limit, 100 + i, 1, i + 1))
         .collect();
-    let sweeper = no(9_999_999, 2, Side::Buy, OrderType::Limit, 100 + N, N, 10_000_000);
+    let sweeper = no(
+        9_999_999,
+        2,
+        Side::Buy,
+        OrderType::Limit,
+        100 + N,
+        N,
+        10_000_000,
+    );
 
     let mut g = c.benchmark_group("throughput_sweep_levels");
     g.throughput(Throughput::Elements(N));
@@ -231,7 +247,17 @@ fn bench_spsc_pipeline(c: &mut Criterion) {
     const N: u64 = 10_000;
     let maker = no(1, 1, Side::Sell, OrderType::Limit, 100, N, 1);
     let takers: Vec<Sequenced> = (0..N)
-        .map(|i| no(1_000_000 + i, 2, Side::Buy, OrderType::Limit, 100, 1, 100 + i))
+        .map(|i| {
+            no(
+                1_000_000 + i,
+                2,
+                Side::Buy,
+                OrderType::Limit,
+                100,
+                1,
+                100 + i,
+            )
+        })
         .collect();
 
     // in 容量故意设小(贴近真实 ring buffer),强制生产者/撮合线程真正并发跑满。

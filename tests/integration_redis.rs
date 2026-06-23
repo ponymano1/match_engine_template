@@ -4,8 +4,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use common::{
-    has_accepted, has_canceled, has_killed, has_rejected, has_resting, total_traded, trades,
-    Event, Harness, NewOrder, OrderType, Side,
+    Event, Harness, NewOrder, OrderType, Side, has_accepted, has_canceled, has_killed,
+    has_rejected, has_resting, total_traded, trades,
 };
 
 const T: Duration = Duration::from_secs(3);
@@ -72,7 +72,14 @@ fn post_only_rejected_when_crossing() {
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 5));
     let _ = h.collect_n(2, T);
 
-    h.new_order(NewOrder::new(2, 200, Side::Buy, OrderType::PostOnly, 101, 1));
+    h.new_order(NewOrder::new(
+        2,
+        200,
+        Side::Buy,
+        OrderType::PostOnly,
+        101,
+        1,
+    ));
     let evs = h.collect_n(2, T); // Accepted + Rejected
     assert!(has_accepted(&evs, 2), "{evs:?}");
     assert!(has_rejected(&evs, 2), "{evs:?}");
@@ -83,7 +90,14 @@ fn post_only_rejected_when_crossing() {
 #[test]
 fn post_only_rests_when_not_crossing() {
     let mut h = Harness::start();
-    h.new_order(NewOrder::new(1, 100, Side::Buy, OrderType::PostOnly, 100, 5));
+    h.new_order(NewOrder::new(
+        1,
+        100,
+        Side::Buy,
+        OrderType::PostOnly,
+        100,
+        5,
+    ));
     let evs = h.collect_n(2, T);
     assert!(has_resting(&evs, 1), "{evs:?}");
     assert!(!has_rejected(&evs, 1), "{evs:?}");
