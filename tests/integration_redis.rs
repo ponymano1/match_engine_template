@@ -1,5 +1,14 @@
 mod common;
 
+/// 集成测试依赖 Docker Redis; 默认 `cargo test` 会跳过,用 `./scripts/test.sh` 或 `./scripts/run-integration.sh` 跑。
+macro_rules! redis_it {
+    ($name:ident $body:block) => {
+        #[test]
+        #[ignore = "needs Redis — run ./scripts/test.sh or ./scripts/run-integration.sh"]
+        fn $name() $body
+    };
+}
+
 use std::time::Duration;
 use std::time::Instant;
 
@@ -11,8 +20,7 @@ use common::{
 const T: Duration = Duration::from_secs(3);
 
 /// 卖单挂簿,买单穿价 → 一笔成交,价为 Maker 价。
-#[test]
-fn limit_resting_then_cross_trades() {
+redis_it!(limit_resting_then_cross_trades {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 10));
@@ -39,11 +47,10 @@ fn limit_resting_then_cross_trades() {
         assert_eq!(*price, 100, "成交价恒为 Maker 价");
         assert_eq!(*quantity, 4);
     }
-}
+});
 
 /// 挂单可被撤销,产出 Canceled。
-#[test]
-fn cancel_resting_order() {
+redis_it!(cancel_resting_order {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 5));
@@ -53,20 +60,18 @@ fn cancel_resting_order() {
     h.cancel(1);
     let evs = h.collect_n(1, T);
     assert!(has_canceled(&evs, 1), "{evs:?}");
-}
+});
 
 /// 撤一个不存在的单 → Rejected。
-#[test]
-fn cancel_unknown_rejected() {
+redis_it!(cancel_unknown_rejected {
     let mut h = Harness::start();
     h.cancel(999);
     let evs = h.collect_n(1, T);
     assert!(has_rejected(&evs, 999), "{evs:?}");
-}
+});
 
 /// Post-Only 若会穿价则整笔拒绝,不成交不挂簿。
-#[test]
-fn post_only_rejected_when_crossing() {
+redis_it!(post_only_rejected_when_crossing {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 5));
@@ -84,11 +89,10 @@ fn post_only_rejected_when_crossing() {
     assert!(has_accepted(&evs, 2), "{evs:?}");
     assert!(has_rejected(&evs, 2), "{evs:?}");
     assert!(trades(&evs).is_empty(), "post-only 不得成交: {evs:?}");
-}
+});
 
 /// Post-Only 不穿价 → 挂簿。
-#[test]
-fn post_only_rests_when_not_crossing() {
+redis_it!(post_only_rests_when_not_crossing {
     let mut h = Harness::start();
     h.new_order(NewOrder::new(
         1,
@@ -101,11 +105,10 @@ fn post_only_rests_when_not_crossing() {
     let evs = h.collect_n(2, T);
     assert!(has_resting(&evs, 1), "{evs:?}");
     assert!(!has_rejected(&evs, 1), "{evs:?}");
-}
+});
 
 /// FOK 流动性不足被 Kill,且订单簿原封不动。
-#[test]
-fn fok_killed_leaves_book_intact() {
+redis_it!(fok_killed_leaves_book_intact {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 5));
@@ -120,11 +123,10 @@ fn fok_killed_leaves_book_intact() {
     h.new_order(NewOrder::limit(3, 300, Side::Buy, 100, 5));
     let evs = h.collect_n(2, T);
     assert_eq!(trades(&evs).len(), 1, "maker 应仍在簿: {evs:?}");
-}
+});
 
 /// IOC 部分成交后剩余被 Kill,从不挂簿。
-#[test]
-fn ioc_partial_then_kill() {
+redis_it!(ioc_partial_then_kill {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 3));
@@ -136,11 +138,10 @@ fn ioc_partial_then_kill() {
     assert_eq!(total_traded(&evs), 3, "{evs:?}");
     assert!(has_killed(&evs, 2), "剩余须被 Kill: {evs:?}");
     assert!(!has_resting(&evs, 2), "IOC 从不挂簿: {evs:?}");
-}
+});
 
 /// 市价保护:超出保护价的档不吃,剩余 Kill。
-#[test]
-fn market_order_respects_protection() {
+redis_it!(market_order_respects_protection {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Sell, 100, 5));
@@ -152,11 +153,10 @@ fn market_order_respects_protection() {
     let evs = h.collect_n(3, T);
     assert_eq!(total_traded(&evs), 5, "只能吃到 100 档: {evs:?}");
     assert!(has_killed(&evs, 3), "{evs:?}");
-}
+});
 
 /// 自成交保护:同 user 撞自己的挂单 → 撤 Maker,不与自己成交。
-#[test]
-fn self_trade_prevention_cancels_resting() {
+redis_it!(self_trade_prevention_cancels_resting {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 777, Side::Sell, 100, 5));
@@ -168,11 +168,10 @@ fn self_trade_prevention_cancels_resting() {
     assert!(has_canceled(&evs, 1), "自己的 Maker 须被撤: {evs:?}");
     assert!(trades(&evs).is_empty(), "不得自成交: {evs:?}");
     assert!(has_resting(&evs, 2), "买单剩余应挂簿: {evs:?}");
-}
+});
 
 /// 跳过自己、成交别人。
-#[test]
-fn self_trade_skips_own_fills_other() {
+redis_it!(self_trade_skips_own_fills_other {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 7, Side::Sell, 100, 5)); // 自己的
@@ -187,11 +186,10 @@ fn self_trade_skips_own_fills_other() {
     if let Event::Trade { maker_order_id, .. } = ts[0] {
         assert_eq!(*maker_order_id, 2, "应成交别人的单: {evs:?}");
     }
-}
+});
 
 /// 防御性 qty==0:先 Accepted 再 Rejected。
-#[test]
-fn zero_qty_accepted_then_rejected() {
+redis_it!(zero_qty_accepted_then_rejected {
     let mut h = Harness::start();
 
     h.new_order(NewOrder::limit(1, 100, Side::Buy, 100, 0));
@@ -199,11 +197,10 @@ fn zero_qty_accepted_then_rejected() {
     assert!(has_accepted(&evs, 1), "{evs:?}");
     assert!(has_rejected(&evs, 1), "{evs:?}");
     assert!(trades(&evs).is_empty(), "{evs:?}");
-}
+});
 
 /// 未知 symbol 的命令被 main 直接丢弃,引擎无任何输出。
-#[test]
-fn unknown_symbol_dropped() {
+redis_it!(unknown_symbol_dropped {
     let mut h = Harness::start();
 
     // 直接构造一个别的 symbol 的下单(绕过 SYMBOL 常量)
@@ -220,11 +217,10 @@ fn unknown_symbol_dropped() {
 
     let evs = h.drain(Duration::from_millis(800));
     assert!(evs.is_empty(), "未知 symbol 不应产生任何事件: {evs:?}");
-}
+});
 
 /// 测试500单逐一穿价成交,打印端到端耗时与 QPS。
-#[test]
-fn test_500_orders() {
+redis_it!(test_500_orders {
     const N: u64 = 500;
     // 压测给足超时,避免 CI 慢机误杀
     let timeout = Duration::from_secs(30);
@@ -257,4 +253,4 @@ fn test_500_orders() {
     println!("===== 500 单 =====");
     println!("订单数        : {N}");
     println!("产生事件数    : {}", evs.len());
-}
+});

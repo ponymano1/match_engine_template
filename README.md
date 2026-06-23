@@ -169,10 +169,10 @@ downstream can dedupe on failover.
                           │ Engine::handle()  │   │ Engine::handle() │
                           └──────────────┬───┘   └───────┬──────────┘
                                          │               │
-                          Sender<Event> (shared output ring, bounded)
+                          Sender<Event> (output ring)
                                          │               │
-                                         └───────┬───────┘
-                                                 ▼
+                                         |               |
+                                         ▼               ▼ 
                                      ┌───────────────────────┐
                                      │   publisher thread     │
                                      │   RedisOutbound        │
@@ -297,6 +297,21 @@ the process refuses to run misconfigured.
 cargo run --features redis-mq -- config.toml
 cargo test --features redis-mq         # unit tests for engine + orderbook
 ```
+
+## Testing
+
+### Unit tests
+
+```bash
+cargo test
+```
+
+### Integration tests
+
+```bash
+./scripts/run-integration.sh
+```
+
 ## Engine performance testing
 ```bash
 cargo bench --bench engine_bench
@@ -310,10 +325,16 @@ cargo bench --bench engine_bench
   ops drop from 2 per order to 1. That alone reduces matching-thread channel
   ops from 3 to 2, saving ~100 ns per order; retention rate should climb from
   ~28% back to ~40%. Highest-ROI change, no new dependencies. (Done)
+- With pure in-process engine calls (no MQ), a single symbol handles roughly
+  6–8M orders/s; including `crossbeam_channel` overhead, expect ~3M orders/s.
+  For most trading systems the match engine is no longer the bottleneck. To go
+  further, replace `crossbeam_channel` with a lock-free queue and tune memory
+  allocation/deallocation.
 
 ## Roadmap
 
 - [ ] Kafka inbound/outbound
+- [ ] Replace `crossbeam_channel` with a lock-free queue
 - [ ] SQS inbound/outbound
 - [ ] Snapshot + replay for cold start / recovery
 - [ ] Per-shard gap detection via `shard_seq`
