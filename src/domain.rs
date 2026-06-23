@@ -1,6 +1,7 @@
 //! 撮合域模型：类型别名、命令、事件与订单语义。
 
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 
 pub type OrderId = u64;
 /// 定点价格：真实价格 * 10^price_scale（如 10020.50 → 1002050）
@@ -9,6 +10,10 @@ pub type Price = u64;
 pub type Quantity = u64;
 pub type Timestamp = u64; // 纳秒，由定序点赋予
 pub type Sequence = u64;
+
+/// 一条命令产出的事件批次。常见路径(Accepted + Trade/Resting)≤4 个,栈上零分配;
+/// 极端 sweep 单产出过多事件时自动退化为堆,正确性不受影响。
+pub type Events = SmallVec<[Event; 4]>;
 
 /// 买卖方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

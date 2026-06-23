@@ -11,8 +11,8 @@
 use std::process::{Child, Command as Proc, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use redis::streams::{StreamReadOptions, StreamReadReply};
 use redis::Commands;
+use redis::streams::{StreamReadOptions, StreamReadReply};
 use serde::{Deserialize, Serialize};
 
 const ENGINE_BIN: &str = env!("CARGO_BIN_EXE_match_engine_template");
@@ -134,7 +134,10 @@ fn unique() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static C: AtomicU64 = AtomicU64::new(0);
     let n = C.fetch_add(1, Ordering::Relaxed);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     format!("{}_{}_{}", std::process::id(), nanos, n)
 }
 
@@ -145,7 +148,9 @@ impl Harness {
         let mut con = client
             .get_connection()
             .expect("连不上 Redis —— 先跑 scripts/redis-up.sh");
-        redis::cmd("PING").query::<String>(&mut con).expect("PING failed");
+        redis::cmd("PING")
+            .query::<String>(&mut con)
+            .expect("PING failed");
 
         let id = unique();
         let orders = format!("it_orders_{id}");
@@ -286,7 +291,9 @@ impl Drop for Harness {
 // ── 断言辅助 ──────────────────────────────────────────────────────────────────
 
 pub fn trades(evs: &[Event]) -> Vec<&Event> {
-    evs.iter().filter(|e| matches!(e, Event::Trade { .. })).collect()
+    evs.iter()
+        .filter(|e| matches!(e, Event::Trade { .. }))
+        .collect()
 }
 pub fn total_traded(evs: &[Event]) -> u64 {
     evs.iter()
@@ -297,17 +304,22 @@ pub fn total_traded(evs: &[Event]) -> u64 {
         .sum()
 }
 pub fn has_accepted(evs: &[Event], id: u64) -> bool {
-    evs.iter().any(|e| matches!(e, Event::Accepted { order_id, .. } if *order_id == id))
+    evs.iter()
+        .any(|e| matches!(e, Event::Accepted { order_id, .. } if *order_id == id))
 }
 pub fn has_rejected(evs: &[Event], id: u64) -> bool {
-    evs.iter().any(|e| matches!(e, Event::Rejected { order_id, .. } if *order_id == id))
+    evs.iter()
+        .any(|e| matches!(e, Event::Rejected { order_id, .. } if *order_id == id))
 }
 pub fn has_resting(evs: &[Event], id: u64) -> bool {
-    evs.iter().any(|e| matches!(e, Event::Resting { order_id, .. } if *order_id == id))
+    evs.iter()
+        .any(|e| matches!(e, Event::Resting { order_id, .. } if *order_id == id))
 }
 pub fn has_canceled(evs: &[Event], id: u64) -> bool {
-    evs.iter().any(|e| matches!(e, Event::Canceled { order_id } if *order_id == id))
+    evs.iter()
+        .any(|e| matches!(e, Event::Canceled { order_id } if *order_id == id))
 }
 pub fn has_killed(evs: &[Event], id: u64) -> bool {
-    evs.iter().any(|e| matches!(e, Event::Killed { order_id, .. } if *order_id == id))
+    evs.iter()
+        .any(|e| matches!(e, Event::Killed { order_id, .. } if *order_id == id))
 }

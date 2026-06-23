@@ -18,18 +18,16 @@ fn spawn_engine(
     symbol: String,
     protection_bps: u64,
     input_capacity: usize,
-    out_tx: Sender<Event>,
+    out_tx: Sender<Events>, // ← Sender<Event> 改 Sender<Events>
 ) -> Sender<Sequenced> {
     let (in_tx, in_rx): (Sender<Sequenced>, Receiver<Sequenced>) = bounded(input_capacity);
     thread::Builder::new()
         .name(format!("match-{symbol}"))
         .spawn(move || {
             let mut engine = Engine::new(symbol, protection_bps);
-            // 撮合线程:只从 input 读、向 output 写,永不做 IO
             for seq_cmd in in_rx.iter() {
-                for ev in engine.handle(&seq_cmd) {
-                    let _ = out_tx.send(ev); // 推入 Output Ring Buffer(满则背压)
-                }
+                // 一单产出的整批事件,只 send 一次(原来是 for ev ... send 多次)
+                let _ = out_tx.send(engine.handle(&seq_cmd));
             }
         })
         .unwrap();
@@ -54,7 +52,8 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Output Ring Buffer:所有分片共享一个输出队列
-    let (out_tx, out_rx) = bounded::<Event>(cfg.engine.output_ring_capacity);
+    // Output Ring Buffer:元素从单个 Event 改为一批 Events
+    let (out_tx, out_rx) = bounded::<Events>(cfg.engine.output_ring_capacity);
 
     // —— Publisher(IO 线程):Output Ring Buffer → External MQ ——
     {
@@ -65,13 +64,15 @@ fn main() -> anyhow::Result<()> {
         thread::Builder::new()
             .name("publisher".into())
             .spawn(move || {
-                for ev in out_rx.iter() {
-                    let topic = match &ev {
-                        Event::Trade { .. } => trades_topic.as_str(),
-                        _ => book_topic.as_str(),
-                    };
-                    let payload = serde_json::to_vec(&ev).unwrap();
-                    let _ = pub_mq.publish(topic, &payload);
+                for batch in out_rx.iter() {
+                    for ev in batch {
+                        let topic = match &ev {
+                            Event::Trade { .. } => trades_topic.as_str(),
+                            _ => book_topic.as_str(),
+                        };
+                        let payload = serde_json::to_vec(&ev).unwrap();
+                        let _ = pub_mq.publish(topic, &payload);
+                    }
                 }
             })
             .unwrap();

@@ -2,6 +2,7 @@
 
 use crate::domain::*;
 use crate::orderbook::OrderBook;
+use smallvec::smallvec;
 
 /// 单 symbol 撮合引擎实例
 pub struct Engine {
@@ -18,17 +19,19 @@ impl Engine {
         }
     }
 
-    /// 处理一条已定序命令，返回零个或多个事件（Accepted + 后续状态变更）
-    pub fn handle(&mut self, s: &Sequenced) -> Vec<Event> {
+    pub fn handle(&mut self, s: &Sequenced) -> Events {
+        // ← Vec<Event> 改 Events
         match &s.cmd {
             Command::NewOrder(o) => self.on_new_order(o, s.seq, s.ts),
             Command::Cancel { order_id, .. } => {
                 if self.book.cancel(*order_id) {
-                    vec![Event::Canceled {
+                    smallvec![Event::Canceled {
+                        // ← vec! 改 smallvec!
                         order_id: *order_id,
                     }]
                 } else {
-                    vec![Event::Rejected {
+                    smallvec![Event::Rejected {
+                        // ← vec! 改 smallvec!
                         order_id: *order_id,
                         reason: "order not found".into(),
                     }]
@@ -38,8 +41,9 @@ impl Engine {
     }
 
     /// 新单路由：qty 校验 → PostOnly / FOK 预判 → 撮合 → 剩余挂簿或 Kill
-    fn on_new_order(&mut self, o: &NewOrder, seq: Sequence, ts: Timestamp) -> Vec<Event> {
-        let mut ev = vec![Event::Accepted {
+    fn on_new_order(&mut self, o: &NewOrder, seq: Sequence, ts: Timestamp) -> Events {
+        let mut ev: Events = smallvec![Event::Accepted {
+            // ← vec! 改 smallvec!
             order_id: o.order_id,
             seq,
         }];
