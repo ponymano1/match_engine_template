@@ -60,7 +60,7 @@ Order Service ─┬─ Account Service (freeze balance)
                       ▼
             Clearing / Settlement  +  Market Data
 
-````
+```
 
 ## Data structures
 
@@ -162,28 +162,34 @@ downstream can dedupe on failover.
                          │     → assign (seq, shard_seq, ts)              │
                          └───────────────┬───────────────┬───────────────┘
                                          │               │
-                          Sender<Sequenced> per symbol (bounded ring)
+                       Sender<Sequenced> per symbol (bounded input ring)
                                          │               │
                           ┌──────────────▼───┐   ┌───────▼──────────┐
                           │ match-BTC/USD     │   │ match-ETH/USD    │   ...
                           │ Engine::handle()  │   │ Engine::handle() │
                           └──────────────┬───┘   └───────┬──────────┘
                                          │               │
-                          Sender<Event> (output ring)
+                 Sender<Events> per symbol (bounded output ring, one batch/send)
                                          │               │
-                                         |               |
-                                         ▼               ▼ 
-                                     ┌───────────────────────┐
-                                     │   publisher thread     │
-                                     │   RedisOutbound        │
-                                     │   .publish(topic, ..)  │
-                                     └───────────┬───────────┘
-                                                 ▼
-                                       Redis Streams (trades / book events)
+                          ┌──────────────▼───┐   ┌───────▼──────────┐
+                          │ publisher-BTC/USD │   │ publisher-ETH/USD│   ...
+                          │ own RedisOutbound │   │ own RedisOutbound │
+                          │ .publish(topic,..)│   │ .publish(topic,.)│
+                          └──────────────┬───┘   └───────┬──────────┘
+                                         │               │
+                                         ▼               ▼
+                                  Redis Streams (trades / book events)
 
-````
+```
 
-- One **dedicated thread per symbol** → independent order book, no locks.
+- **One independent pipeline per symbol**: independent order book + input ring +
+  output ring + publisher thread + Redis connection. If one symbol's downstream
+  (Redis) slows or stalls, backpressure stays on that symbol's pipeline alone and
+  never affects others — fault isolation, blast radius confined to a single symbol.
+- The matching thread sends the whole `Events` batch returned by `handle` in a
+  **single send** (not per-event); outbound channel ops drop to 1 per order. The
+  per-symbol publisher thread then iterates the batch to pick a topic, serialize,
+  and publish.
 - **Bounded** channels give natural backpressure when downstream lags.
 - Matching threads do **no IO**: read input ring, write output ring, nothing else.
 
@@ -196,7 +202,7 @@ main loop
 └─ serde_json::from_slice::<Command>
 └─ routes.get(&symbol)                  // drop if unknown symbol
 └─ assign seq / shard_seq / ts
-└─ tx.send(Sequenced)             ──────► (per-symbol channel)
+└─ tx.send(Sequenced)             ──────► (per-symbol input channel)
 
 match-<symbol> thread
 └─ Engine::handle(&Sequenced)           // engine.rs
@@ -232,21 +238,23 @@ match-<symbol> thread
 └─ remaining:
 ├─ Limit            → rest + Resting
 └─ Market/Ioc/Fok   → Killed
-└─ for ev in events: out_tx.send(ev)    ──────► (output channel)
+└─ out_tx.send(events)    ──────► (this symbol's output channel, whole batch)
 
-publisher thread
-└─ out_rx.iter()
-└─ serde_json::to_vec(&Event)
-└─ RedisOutbound::publish(topic, payload)   // mq.rs
+publisher-<symbol> thread
+└─ out_rx.iter()                        // receives the whole Events batch
+└─ for ev in batch:
+├─ pick topic by Trade / other     // Trade → trades_topic, else → book_topic
+├─ serde_json::to_vec(&ev)
+└─ RedisOutbound::publish(topic, payload)   // mq.rs, this symbol's own conn
 
-````
+```
 
 ## Call flow: a Cancel
 
 ```
 
-main loop → route by symbol → Sequenced → channel
-match thread
+main loop → route by symbol → Sequenced → per-symbol input channel
+match-<symbol> thread
 └─ Engine::handle
 └─ Command::Cancel
 └─ OrderBook::cancel(order_id)        // orderbook.rs
@@ -256,8 +264,10 @@ match thread
 └─ drop level if empty
 ├─ true  → Event::Canceled
 └─ false → Event::Rejected ("order not found")
+└─ out_tx.send(events)                    ──────► (output path same as NewOrder:
+                                          whole Events batch → this symbol's publisher)
 
-````
+```
 
 ## Module map
 
@@ -285,11 +295,12 @@ book_events_topic = "book"
 input_ring_capacity   = 1024   # must be a power of two
 output_ring_capacity  = 4096   # must be a power of two
 market_protection_bps = 500    # 5%
-````
+```
 
 `MQ_URL` env var overrides `mq.url` (keep secrets out of the file). Ring
 capacities must be powers of two; symbols must be unique — validated at startup,
-the process refuses to run misconfigured.
+the process refuses to run misconfigured. `output_ring_capacity` is the capacity
+of **each symbol's own** output ring (not a single shared queue).
 
 ## Running
 
@@ -325,6 +336,11 @@ cargo bench --bench engine_bench
   ops drop from 2 per order to 1. That alone reduces matching-thread channel
   ops from 3 to 2, saving ~100 ns per order; retention rate should climb from
   ~28% back to ~40%. Highest-ROI change, no new dependencies. (Done)
+- Split out a dedicated output ring + publisher thread + Redis connection per
+  symbol, replacing the previously shared single output queue. The benefit is
+  **fault isolation**: a slow downstream for one symbol only backpressures its
+  own pipeline and no longer stalls other symbols. Note this is an
+  architectural isolation change; single-symbol throughput is unaffected. (Done)
 - With pure in-process engine calls (no MQ), a single symbol handles roughly
   6–8M orders/s; including `crossbeam_channel` overhead, expect ~3M orders/s.
   For most trading systems the match engine is no longer the bottleneck. To go
@@ -338,4 +354,4 @@ cargo bench --bench engine_bench
 - [ ] SQS inbound/outbound
 - [ ] Snapshot + replay for cold start / recovery
 - [ ] Per-shard gap detection via `shard_seq`
-
+```
